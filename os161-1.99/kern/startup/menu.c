@@ -199,6 +199,21 @@ cmd_shell(int nargs, char **args)
 }
 
 /*
+ * Command for enabling DB_THREADS debugging messages.
+ */
+static
+int
+cmd_dth(int nargs, char **args)
+{
+	(void)nargs;
+	(void)args;
+
+	dbflags = DB_THREADS;
+
+	return 0;
+}
+
+/*
  * Command for changing directory.
  */
 static
@@ -437,6 +452,7 @@ static const char *opsmenu[] = {
 	"[sync]    Sync filesystems          ",
 	"[panic]   Intentional panic         ",
 	"[q]       Quit and shut down        ",
+	"[dth]     Enable DB_THREADS debugging",
 	NULL
 };
 
@@ -547,6 +563,7 @@ static struct {
 	{ "sync",	cmd_sync },
 	{ "panic",	cmd_panic },
 	{ "q",		cmd_quit },
+	{ "dth",	cmd_dth },
 	{ "exit",	cmd_quit },
 	{ "halt",	cmd_quit },
 
