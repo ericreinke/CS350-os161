@@ -21,25 +21,26 @@
 /*
  * replace this with declarations of any synchronization and other variables you need here
  */
-static struct semaphore *intersectionSem;
-
-
+static struct lock *intersection_lock;
+static struct cv *cvs[4];
+static int count[4];
 /* 
  * The simulation driver will call this function once before starting
  * the simulation
  *
  * You can use it to initialize synchronization and other variables.
- * 
  */
 void
 intersection_sync_init(void)
 {
-  /* replace this default implementation with your own implementation */
-
-  intersectionSem = sem_create("intersectionSem",1);
-  if (intersectionSem == NULL) {
-    panic("could not create intersection semaphore");
+  intersection_lock = lock_create("lk_intersection");
+  for(int i = 0; i < 4; i++){
+    count[i]=0;
   }
+  cvs[0] = cv_create("cv_N");
+  cvs[1] = cv_create("cv_E");
+  cvs[2] = cv_create("cv_S");
+  cvs[3] = cv_create("cv_W");
   return;
 }
 
@@ -48,14 +49,14 @@ intersection_sync_init(void)
  * the simulation has finished
  *
  * You can use it to clean up any synchronization and other variables.
- *
  */
 void
 intersection_sync_cleanup(void)
 {
-  /* replace this default implementation with your own implementation */
-  KASSERT(intersectionSem != NULL);
-  sem_destroy(intersectionSem);
+  lock_destroy(intersection_lock);
+  for(int i = 0; i < 4; i++){
+    cv_destroy(cvs[i]);
+  }
 }
 
 
@@ -75,11 +76,18 @@ intersection_sync_cleanup(void)
 void
 intersection_before_entry(Direction origin, Direction destination) 
 {
-  /* replace this default implementation with your own implementation */
-  (void)origin;  /* avoid compiler complaint about unused parameter */
-  (void)destination; /* avoid compiler complaint about unused parameter */
-  KASSERT(intersectionSem != NULL);
-  P(intersectionSem);
+  (void)destination;
+  lock_acquire(intersection_lock);
+
+  while((count[0] != 0 && origin != 0) ||   // If the count from an origin is not 0, this car must wait
+        (count[1] != 0 && origin != 1) ||   // unless the cars in the intersection are from this threads 
+        (count[2] != 0 && origin != 2) ||   // origin. This while loop will spin until all origins are  
+        (count[3] != 0 && origin != 3))     // empty (0) except its own origin.
+  {
+    cv_wait(cvs[origin], intersection_lock);  
+  }
+  count[origin]++;
+  lock_release(intersection_lock);
 }
 
 
@@ -97,9 +105,11 @@ intersection_before_entry(Direction origin, Direction destination)
 void
 intersection_after_exit(Direction origin, Direction destination) 
 {
-  /* replace this default implementation with your own implementation */
-  (void)origin;  /* avoid compiler complaint about unused parameter */
-  (void)destination; /* avoid compiler complaint about unused parameter */
-  KASSERT(intersectionSem != NULL);
-  V(intersectionSem);
+  (void)destination;
+  lock_acquire(intersection_lock);
+  count[origin]--;
+  for(int i=0; i<4; i++){
+    cv_broadcast(cvs[i], intersection_lock);
+  }
+  lock_release(intersection_lock);
 }
