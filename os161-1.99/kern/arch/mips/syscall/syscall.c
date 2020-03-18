@@ -35,6 +35,7 @@
 #include <thread.h>
 #include <current.h>
 #include <syscall.h>
+#include "opt-A2.h"
 
 
 /*
@@ -96,9 +97,7 @@ syscall(struct trapframe *tf)
 	 * deal with it except for calls that return other values, 
 	 * like write.
 	 */
-
 	retval = 0;
-
 	switch (callno) {
 	    case SYS_reboot:
 		err = sys_reboot(tf->tf_a0);
@@ -131,7 +130,11 @@ syscall(struct trapframe *tf)
 	  break;
 #endif // UW
 
-	    /* Add stuff here */
+#if OPT_A2
+	case SYS_fork:
+	err = sys_fork(tf,(pid_t *)&retval);
+	break;
+#endif
  
 	default:
 	  kprintf("Unknown syscall %d\n", callno);
@@ -177,7 +180,17 @@ syscall(struct trapframe *tf)
  * Thus, you can trash it and do things another way if you prefer.
  */
 void
-enter_forked_process(struct trapframe *tf)
-{
-	(void)tf;
+enter_forked_process(void *tf_p, unsigned long number)
+{	
+	#if OPT_A2
+	(void) number;
+	struct trapframe tf_c = *(struct trapframe *) tf_p;
+	tf_c.tf_v0 = 0;
+	tf_c.tf_a3 = 0;
+	tf_c.tf_epc +=4;
+	mips_usermode(&tf_c);
+	#else
+	(void) tf_p;
+	(void) number;
+	#endif
 }

@@ -35,9 +35,20 @@
  *
  * Note: curproc is defined by <current.h>.
  */
-
+#include "opt-A2.h"
 #include <spinlock.h>
 #include <thread.h> /* required for struct threadarray */
+
+#if OPT_A2
+extern volatile pid_t cur_pid;
+extern struct lock *pid_lock;
+
+struct child_proc_info{
+	pid_t pid;				// May need this much later.  As long as parent alive we keep
+	int exitcode; 			// May need this much later.  As long as parent alive we keep
+	struct proc * the_proc;	
+};
+#endif
 
 struct addrspace;
 struct vnode;
@@ -49,6 +60,15 @@ struct semaphore;
  * Process structure.
  */
 struct proc {
+	#if OPT_A2
+	pid_t pid;
+	struct trapframe *tf;
+	struct proc * parent;
+	struct array* children_proc_info;
+	struct lock * children_lock;		// for the array
+	struct cv * has_died;
+	#endif
+
 	char *p_name;			/* Name of this process */
 	struct spinlock p_lock;		/* Lock for this structure */
 	struct threadarray p_threads;	/* Threads in this process */

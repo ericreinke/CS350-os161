@@ -49,7 +49,10 @@
 #include <vnode.h>
 #include <vfs.h>
 #include <synch.h>
-#include <kern/fcntl.h>  
+#include <lib.h>
+#include <kern/fcntl.h>
+#include <array.h>
+#include "opt-A2.h"
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
@@ -69,6 +72,12 @@ static struct semaphore *proc_count_mutex;
 struct semaphore *no_proc_sem;   
 #endif  // UW
 
+#if OPT_A2
+volatile pid_t cur_pid;
+struct lock *pid_lock;
+#endif
+
+
 
 
 /*
@@ -84,6 +93,8 @@ proc_create(const char *name)
 	if (proc == NULL) {
 		return NULL;
 	}
+
+
 	proc->p_name = kstrdup(name);
 	if (proc->p_name == NULL) {
 		kfree(proc);
@@ -135,6 +146,24 @@ proc_destroy(struct proc *proc)
 		VOP_DECREF(proc->p_cwd);
 		proc->p_cwd = NULL;
 	}
+
+	#if OPT_A2
+	struct child_proc_info * my_child;
+	lock_acquire(proc->children_lock);
+	//since we're destroying this proc and the child info array, we need to set all their parents to NULL
+	for(int i = array_num(proc->children_proc_info) -1; i>=0; i--){
+		my_child = array_get(proc->children_proc_info, i);
+		my_child->the_proc->parent = NULL; 	// This is the line that fixes a child trying to access a freed parent
+		kfree(my_child);					// Free this element
+		array_remove(proc->children_proc_info, i); // needs to be empty for cleanup.  reason for running reverse forloop
+	}
+	array_destroy(proc->children_proc_info);
+	cv_broadcast(proc->has_died, proc->children_lock);
+	lock_release(proc->children_lock);
+	cv_destroy(proc->has_died);
+	lock_destroy(proc->children_lock);
+
+	#endif
 
 
 #ifndef UW  // in the UW version, space destruction occurs in sys_exit, not here
@@ -197,6 +226,7 @@ proc_bootstrap(void)
   if (kproc == NULL) {
     panic("proc_create for kproc failed\n");
   }
+
 #ifdef UW
   proc_count = 0;
   proc_count_mutex = sem_create("proc_count_mutex",1);
@@ -208,6 +238,16 @@ proc_bootstrap(void)
     panic("could not create no_proc_sem semaphore\n");
   }
 #endif // UW 
+
+#if OPT_A2
+  cur_pid = 1;
+  pid_lock = lock_create("pid_lock");
+  if(pid_lock==NULL){
+	  panic("Could not create pid_lock");
+  }
+#endif
+
+
 }
 
 /*
@@ -238,6 +278,19 @@ proc_create_runprogram(const char *name)
 	}
 	kfree(console_path);
 #endif // UW
+
+#if OPT_A2
+	KASSERT(pid_lock!=NULL);
+	lock_acquire(pid_lock);
+	proc->pid = cur_pid;
+	cur_pid++;
+	lock_release(pid_lock);
+	proc->children_proc_info = array_create();
+	proc->children_lock = lock_create("children_lock");
+	proc->parent = NULL;
+	proc->has_died = cv_create("dying_cv");
+
+#endif
 	  
 	/* VM fields */
 
