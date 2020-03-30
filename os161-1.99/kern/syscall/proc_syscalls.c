@@ -11,7 +11,93 @@
 #include <copyinout.h>
 #include <mips/trapframe.h>
 #include <synch.h>
+#include <vfs.h>
+#include <vm.h>
+#include <kern/fcntl.h> // vfs open flags 
 #include "opt-A2.h"
+
+int sys_execv(const char * program, char ** uargs){
+  struct addrspace *as;
+	struct vnode *v;
+	vaddr_t entrypoint, stackptr;
+	int result;
+  int arg_count;
+  arg_count=0;
+
+  for(int i = 0; uargs[i]!=NULL; i++){
+    arg_count++;
+  }
+
+  char ** kargs = kmalloc((arg_count + 1) * sizeof(char *));//kargs is null terminated, hence +1;
+  for(int i = 0; i < arg_count; i++){
+    int arg_len = (strlen(uargs[i]) + 1);
+    int arg_size = arg_len * sizeof(char);
+    kargs[i] = kmalloc(arg_size);
+    copyinstr((const_userptr_t)uargs[i], (void *)kargs[i], arg_len, NULL);
+  }
+  kargs[arg_count] = NULL;
+
+	/* Open the file. */
+  char * fname_temp;
+  fname_temp= kstrdup(program);
+	result = vfs_open(fname_temp, O_RDONLY, 0, &v);
+	if (result) {
+		return result;
+	}
+  //kprintf(fname_temp);
+  kfree(fname_temp);
+
+	/* Create a new address space. */
+	as = as_create();
+	if (as ==NULL) {
+		vfs_close(v);
+		return ENOMEM;
+	}
+
+	/* Switch to it and activate it. */
+	curproc_setas(as);
+	as_activate();
+
+	/* Load the executable. */
+	result = load_elf(v, &entrypoint); // modifies entrypoint to be correct
+	if (result) {
+		/* p_addrspace will go away when curproc is destroyed */
+		vfs_close(v);
+		return result;
+	}
+
+	/* Done with the file now. */
+	vfs_close(v);
+
+  int result2 = as_define_stack(as, &stackptr); // modifies stackptr to be correct
+  if(result2) return result2; // if result is not 0 then error
+
+
+  vaddr_t * user_stack_args = kmalloc((arg_count + 1) * sizeof(vaddr_t));
+
+  user_stack_args[arg_count] = (vaddr_t) NULL;
+  for(int i = arg_count -1; i >=0; i--){ // goes through each karg and copyout to user and stores pointer in user_stack_args
+    size_t arg_len = ROUNDUP(strlen(kargs[i])+1, 4);
+    size_t arg_size = arg_len * (sizeof(char));
+    stackptr -= arg_size;
+    copyoutstr((void *) kargs[i], (userptr_t) stackptr, arg_len, NULL);
+    user_stack_args[i] = stackptr;
+  }
+
+  stackptr-=8; // don't ask
+
+  for (int i = arg_count -1; i >=0; i--){ // now we need to copyout the addresses of the arguments
+    size_t arg_pointer_size = sizeof(userptr_t);
+    stackptr -= arg_pointer_size;
+    copyout((void*) &user_stack_args[i], (userptr_t) stackptr, arg_pointer_size);
+  }
+
+  enter_new_process(arg_count,(userptr_t) stackptr, ROUNDUP(stackptr,8), entrypoint); 
+  //should not return from this.
+
+  return EINVAL; //invalid argument.  enter_new_process returned and it shouldn't have.
+
+}
 
 
 int sys_fork(struct trapframe *tf, pid_t * retval){

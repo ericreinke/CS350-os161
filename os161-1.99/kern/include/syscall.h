@@ -61,6 +61,7 @@ int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
 
 #ifdef UW
 #if OPT_A2
+int sys_execv(const char * program, char ** args);	
 int sys_fork(struct trapframe * tf, pid_t * retval);
 #endif
 int sys_write(int fdesc,userptr_t ubuf,unsigned int nbytes,int *retval);

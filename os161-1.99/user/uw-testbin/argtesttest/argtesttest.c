@@ -9,6 +9,7 @@
 
 #include <unistd.h>
 #include <err.h>
+#include "opt-A2.h"
 
 static char *xargv[4] = { (char *)"argtesttest", (char *)"first", (char *)"second", NULL };
 
