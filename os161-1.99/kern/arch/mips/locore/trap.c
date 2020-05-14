@@ -39,6 +39,9 @@
 #include <vm.h>
 #include <mainbus.h>
 #include <syscall.h>
+#include <addrspace.h>
+#include <proc.h>
+#include "opt-A3.h"
 
 
 /* in exception.S */
@@ -107,14 +110,73 @@ kill_curthread(vaddr_t epc, unsigned code, vaddr_t vaddr)
 		sig = SIGFPE;
 		break;
 	}
+	//kprintf("blyat\n");
 
 	/*
 	 * You will probably want to change this.
 	 */
+#if OPT_A3
+	(void) epc;
+	(void) vaddr;
 
+  struct addrspace *as;
+  struct proc *p = curproc;
+
+
+  // we need to update the parent arry of info, telling it what our exit code is
+  // iterate and check all through the info array
+//   struct child_proc_info * my_info;
+//   if(curproc->parent != NULL){ // the first proc does not have a parent
+//     lock_acquire(curproc->parent->children_lock);
+//     for(unsigned int i = 0; i < array_num(curproc->parent->children_proc_info); i ++){
+//       my_info = array_get(curproc->parent->children_proc_info, i);
+//       if(my_info->pid == curproc->pid){
+//         // we found ourselves in our parent's tracking array
+//         my_info->exitcode = exitcode;
+//       }
+//     }
+//     lock_release(curproc->parent->children_lock);
+//   }
+
+
+  /* for now, just include this to keep the compiler from complaining about
+     an unused variable */
+  //(void)exitcode;
+
+  KASSERT(curproc->p_addrspace != NULL);
+  as_deactivate();
+  /*
+   * clear p_addrspace before calling as_destroy. Otherwise if
+   * as_destroy sleeps (which is quite possible) when we
+   * come back we'll be calling as_activate on a
+   * half-destroyed address space. This tends to be
+   * messily fatal.
+   */
+  as = curproc_setas(NULL);
+  as_destroy(as);
+
+  /* detach this thread from its process */
+  /* note: curproc cannot be used after this call */
+  proc_remthread(curthread);
+
+  /* if this is the last user process in the system, proc_destroy()
+     will wake up the kernel menu thread */
+  proc_destroy(p);
+  
+  thread_exit();
+  /* thread_exit() does not return, so we should never get here */
+  panic("return from thread_exit in kill_curthread (VM_FAULT_READONLY)\n");
+
+
+
+#else
 	kprintf("Fatal user mode trap %u sig %d (%s, epc 0x%x, vaddr 0x%x)\n",
 		code, sig, trapcodenames[code], epc, vaddr);
 	panic("I don't know how to handle this\n");
+#endif
+// kprintf("Fatal user mode trap %u sig %d (%s, epc 0x%x, vaddr 0x%x)\n",
+// 		code, sig, trapcodenames[code], epc, vaddr);
+// 	panic("I don't know how to handle this\n");
 }
 
 /*
@@ -232,6 +294,7 @@ mips_trap(struct trapframe *tf)
 	switch (code) {
 	case EX_MOD:
 		if (vm_fault(VM_FAULT_READONLY, tf->tf_vaddr)==0) {
+
 			goto done;
 		}
 		break;
